@@ -5,14 +5,30 @@ using UnityEngine.SceneManagement;
 
 namespace FNAF87Mod
 {
+    public enum WinderMode
+    {
+        RealisticCamera,
+        InstantMemory
+    }
+
+    public enum PuppetWindingState
+    {
+        Idle,
+        OpeningCam,
+        Winding,
+        ClosingCam
+    }
+
     public class AutoPilot : MonoBehaviour
     {
         public static bool BotActive = true;
         public static bool ShowHUD = true;
+        public static WinderMode CurrentWinderMode = WinderMode.RealisticCamera;
         public static AutoPilot Instance;
 
         private OfficeLightScript ols;
         private Mask maskController;
+        private SelectionScript selection;
         private PuppetScript puppet;
         private FoxyBrainScript foxy;
         private BBVentScript[] bbVents;
@@ -28,6 +44,9 @@ namespace FNAF87Mod
         private float refreshTimer = 0f;
         private List<string> activeThreats = new List<string>();
         private bool lastThreatState = false;
+
+        private PuppetWindingState puppetState = PuppetWindingState.Idle;
+        private float camDelayTimer = 0f;
 
         public static void Attach(OfficeLightScript targetOls)
         {
@@ -45,19 +64,20 @@ namespace FNAF87Mod
             Instance = this;
             if (ols == null) ols = GetComponent<OfficeLightScript>();
             RefreshReferences();
-            Debug.Log(string.Format("[FNAF87 AutoPilot] Initialized: Office={0}, Vents={1}, Breakers={2}, Puppet={3}, Foxy={4}, BB={5}",
+            Debug.Log(string.Format("[FNAF87 AutoPilot] Initialized: Office={0}, Vents={1}, Breakers={2}, Puppet={3}, Foxy={4}, Selection={5}",
                 (officeChars != null ? officeChars.Length : 0),
                 (ventChars != null ? ventChars.Length : 0),
                 (breakers != null ? breakers.Length : 0),
                 (puppet != null),
                 (foxy != null),
-                (bbVents != null ? bbVents.Length : 0)));
+                (selection != null)));
         }
 
         private void RefreshReferences()
         {
             if (ols == null) ols = FindObjectOfType<OfficeLightScript>();
             maskController = FindObjectOfType<Mask>();
+            selection = FindObjectOfType<SelectionScript>();
             puppet = FindObjectOfType<PuppetScript>();
             foxy = FindObjectOfType<FoxyBrainScript>();
             bbVents = FindObjectsOfType<BBVentScript>();
@@ -89,6 +109,15 @@ namespace FNAF87Mod
             if (Input.GetKeyDown(KeyCode.H))
             {
                 ShowHUD = !ShowHUD;
+            }
+            if (Input.GetKeyDown(KeyCode.M))
+            {
+                CurrentWinderMode = (CurrentWinderMode == WinderMode.RealisticCamera) ? WinderMode.InstantMemory : WinderMode.RealisticCamera;
+                Debug.Log("[FNAF87 AutoPilot] WinderMode switched to: " + CurrentWinderMode);
+                if (CurrentWinderMode == WinderMode.InstantMemory && puppet != null && puppet.winding)
+                {
+                    puppet.unclick();
+                }
             }
 
             if (!BotActive) return;
@@ -203,14 +232,96 @@ namespace FNAF87Mod
                 }
             }
 
-            // 3. Puppet Master (Auto-Winder)
+            // 3. Puppet Master (Realistic Camera Winding vs Instant Memory)
             if (puppet != null && puppet.enabled)
             {
-                puppet.timer = 100f;
-                puppet.deathTimer = 40f;
-                if (puppet.progress != null)
+                // Jumpscare safety net: deathTimer never allowed to drop to lethal threshold
+                if (puppet.deathTimer < 15f && puppet.timer <= 0f)
                 {
-                    puppet.progress.transform.localScale = new Vector3(1f, 1f, 1f);
+                    puppet.deathTimer = 40f;
+                }
+
+                if (CurrentWinderMode == WinderMode.InstantMemory)
+                {
+                    // Instant memory lock
+                    puppet.timer = 100f;
+                    puppet.deathTimer = 40f;
+                    if (puppet.progress != null)
+                    {
+                        puppet.progress.transform.localScale = new Vector3(1f, 1f, 1f);
+                    }
+                }
+                else
+                {
+                    // Realistic Camera Winder Simulation
+                    if (threatPresent)
+                    {
+                        // Immediate threat in office! Drop camera and cancel winding immediately
+                        if (puppet.winding) puppet.unclick();
+                        if (ols != null && ols.cams != null && ols.cams.activeSelf)
+                        {
+                            ols.cams.SetActive(false);
+                        }
+                        puppetState = PuppetWindingState.Idle;
+                    }
+                    else
+                    {
+                        switch (puppetState)
+                        {
+                            case PuppetWindingState.Idle:
+                                // Wind threshold: trigger when box drops below 60%
+                                if (puppet.timer <= 60f)
+                                {
+                                    Debug.Log("[FNAF87 AutoPilot] Music box at " + puppet.timer.ToString("F0") + "%. Flipping up monitor to Cam 11...");
+                                    if (ols != null && ols.cams != null && !ols.cams.activeSelf)
+                                    {
+                                        ols.cams.SetActive(true);
+                                    }
+                                    if (selection != null)
+                                    {
+                                        selection.Cam11();
+                                    }
+                                    puppetState = PuppetWindingState.OpeningCam;
+                                    camDelayTimer = 0.35f; // Human flip delay
+                                }
+                                break;
+
+                            case PuppetWindingState.OpeningCam:
+                                camDelayTimer -= Time.deltaTime;
+                                if (camDelayTimer <= 0f)
+                                {
+                                    // Start holding the wind button (plays native crank audio & winds timer)
+                                    puppet.click();
+                                    puppetState = PuppetWindingState.Winding;
+                                    Debug.Log("[FNAF87 AutoPilot] Holding wind button on Cam 11...");
+                                }
+                                break;
+
+                            case PuppetWindingState.Winding:
+                                // Ensure camera monitor remains active
+                                if (ols != null && ols.cams != null && !ols.cams.activeSelf)
+                                {
+                                    ols.cams.SetActive(true);
+                                }
+                                if (!puppet.winding)
+                                {
+                                    puppet.click();
+                                }
+
+                                // Finished winding when box hits ~98%
+                                if (puppet.timer >= 98f)
+                                {
+                                    Debug.Log("[FNAF87 AutoPilot] Music box fully wound (100%). Releasing button and dropping monitor...");
+                                    puppet.unclick();
+                                    if (ols != null && ols.cams != null && ols.cams.activeSelf)
+                                    {
+                                        ols.cams.SetActive(false);
+                                    }
+                                    puppetState = PuppetWindingState.Idle;
+                                }
+                                break;
+                        }
+                    }
                 }
             }
 
@@ -362,8 +473,8 @@ namespace FNAF87Mod
             if (!ShowHUD) return;
             InitGUIStyles();
 
-            float width = 360f;
-            float height = 280f;
+            float width = 380f;
+            float height = 300f;
             Rect panelRect = new Rect(16, 16, width, height);
 
             GUI.Box(panelRect, GUIContent.none, boxStyle);
@@ -376,7 +487,7 @@ namespace FNAF87Mod
             string statusColor = BotActive ? "#00FF66" : "#FF4444";
             string statusText = BotActive ? "ACTIVE (AUTO-DEFENDING)" : "STANDBY (MANUAL)";
             GUILayout.Label(string.Format("Bot Status: <b><color={0}>{1}</color></b>", statusColor, statusText), labelStyle);
-            GUILayout.Label("<color=#AAAAAA>Controls: [B] Toggle Auto-Pilot | [H] Toggle HUD</color>", labelStyle);
+            GUILayout.Label("<color=#AAAAAA>Controls: [B] Bot On/Off | [H] HUD | [M] Winder Mode</color>", labelStyle);
 
             GUILayout.Space(6);
 
@@ -384,9 +495,40 @@ namespace FNAF87Mod
             string hourText = (clock != null) ? string.Format("{0:00}:00 (Night {1})", (int)clock.Hours, BrainScript.night) : "Night " + BrainScript.night;
             GUILayout.Label(string.Format("Time / Shift: <color=#FFFF66>{0}</color>", hourText), labelStyle);
 
-            // Puppet
-            string puppetText = (puppet != null && puppet.enabled) ? string.Format("{0:F0}% (Wound)", puppet.timer) : "Disabled";
-            GUILayout.Label(string.Format("Puppet Music Box: <color=#66CCFF>{0}</color>", puppetText), labelStyle);
+            // Puppet Status with Realistic Camera Details
+            if (puppet != null && puppet.enabled)
+            {
+                string modeLabel = (CurrentWinderMode == WinderMode.RealisticCamera) ? "<color=#00FFFF>Realistic Cam</color>" : "<color=#FFCC00>Instant Lock</color>";
+                string pAction = "";
+                if (CurrentWinderMode == WinderMode.InstantMemory)
+                {
+                    pAction = "<color=#88FF88>100% (Locked)</color>";
+                }
+                else
+                {
+                    if (puppetState == PuppetWindingState.Winding)
+                    {
+                        pAction = string.Format("<color=#00FF66>Winding on Cam 11 ({0:F0}%) [CRANKING]</color>", puppet.timer);
+                    }
+                    else if (puppetState == PuppetWindingState.OpeningCam)
+                    {
+                        pAction = string.Format("<color=#00FFFF>Flipping Cam 11 ({0:F0}%)...</color>", puppet.timer);
+                    }
+                    else if (lastThreatState)
+                    {
+                        pAction = string.Format("<color=#FFAA00>Paused ({0:F0}%) [Office Threat]</color>", puppet.timer);
+                    }
+                    else
+                    {
+                        pAction = string.Format("<color=#88FF88>{0:F0}% (Monitoring)</color>", puppet.timer);
+                    }
+                }
+                GUILayout.Label(string.Format("Puppet Box [{0}]: {1}", modeLabel, pAction), labelStyle);
+            }
+            else
+            {
+                GUILayout.Label("Puppet Music Box: <color=#888888>Disabled</color>", labelStyle);
+            }
 
             // Foxy
             string foxyText = (foxy != null && foxy.enabled) ? (foxy.Active ? "<color=#FF6666>REPELLING</color>" : "<color=#88FF88>Passive</color>") : "Disabled";
