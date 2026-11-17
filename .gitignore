@@ -1,0 +1,24 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+publish/
+release/
+*.zip
+
+# Visual Studio / Rider / VS Code cache
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Mono / Cecil temporary outputs
+*.bak
+*.orig
+
+# Windows desktop
+Thumbs.db
+ehthumbs.db
+Desktop.ini
