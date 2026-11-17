@@ -89,6 +89,13 @@ namespace FNAF87Mod
             shadowBonnie = FindObjectOfType<ShadowBonnieMainScript>();
             lightManager = FindObjectOfType<LightManagerScript>();
             clock = FindObjectOfType<ClockScript>();
+
+            // Initialize Mangle state cleanly: if model is inactive, ensure she is not marked dropped
+            if (mangle != null && mangle.self != null && !mangle.self.activeInHierarchy)
+            {
+                mangle.Down = false;
+                if (mangle.Vacancy != null) mangle.Vacancy.Mangle = false;
+            }
         }
 
         private void Update()
@@ -150,6 +157,9 @@ namespace FNAF87Mod
                         oc.dietimer = 2f;
                     }
 
+                    // Exclude any Mangle objects from generic office checks (Mangle handled below)
+                    if (oc.gameObject.name.ToLower().Contains("mangle")) continue;
+
                     if (oc.inoffice || oc.active)
                     {
                         threatPresent = true;
@@ -171,6 +181,9 @@ namespace FNAF87Mod
                         vc.dietimer = 2f;
                     }
 
+                    // Exclude any Mangle objects from generic vent checks - Mangle only matters when dropped!
+                    if (vc.gameObject.name.ToLower().Contains("mangle")) continue;
+
                     if (vc.active)
                     {
                         threatPresent = true;
@@ -179,6 +192,7 @@ namespace FNAF87Mod
                 }
             }
 
+            // Dedicated Mangle Logic: ONLY a threat when physically active AND dropped into office
             if (mangle != null)
             {
                 if (mangle.killed)
@@ -186,7 +200,21 @@ namespace FNAF87Mod
                     mangle.killed = false;
                     mangle.dietimer = 2f;
                 }
-                if (mangle.Down)
+
+                bool isDropped = mangle.Down;
+                // If Mangle's model is inactive, she is not in the office/hall at all
+                if (mangle.self != null && !mangle.self.activeInHierarchy)
+                {
+                    isDropped = false;
+                    mangle.Down = false;
+                }
+                // VacancyManager confirms if Mangle is currently occupying the office ceiling
+                if (mangle.Vacancy != null && !mangle.Vacancy.Mangle)
+                {
+                    isDropped = false;
+                }
+
+                if (isDropped)
                 {
                     threatPresent = true;
                     activeThreats.Add("Mangle (Ceiling)");
@@ -243,7 +271,6 @@ namespace FNAF87Mod
 
                 if (CurrentWinderMode == WinderMode.InstantMemory)
                 {
-                    // Instant memory lock
                     puppet.timer = 100f;
                     puppet.deathTimer = 40f;
                     if (puppet.progress != null)
@@ -253,10 +280,8 @@ namespace FNAF87Mod
                 }
                 else
                 {
-                    // Realistic Camera Winder Simulation
                     if (threatPresent)
                     {
-                        // Immediate threat in office! Drop camera and cancel winding immediately
                         if (puppet.winding) puppet.unclick();
                         if (ols != null && ols.cams != null && ols.cams.activeSelf)
                         {
@@ -269,7 +294,6 @@ namespace FNAF87Mod
                         switch (puppetState)
                         {
                             case PuppetWindingState.Idle:
-                                // Wind threshold: trigger when box drops below 60%
                                 if (puppet.timer <= 60f)
                                 {
                                     Debug.Log("[FNAF87 AutoPilot] Music box at " + puppet.timer.ToString("F0") + "%. Flipping up monitor to Cam 11...");
@@ -282,7 +306,7 @@ namespace FNAF87Mod
                                         selection.Cam11();
                                     }
                                     puppetState = PuppetWindingState.OpeningCam;
-                                    camDelayTimer = 0.35f; // Human flip delay
+                                    camDelayTimer = 0.35f;
                                 }
                                 break;
 
@@ -290,7 +314,6 @@ namespace FNAF87Mod
                                 camDelayTimer -= Time.deltaTime;
                                 if (camDelayTimer <= 0f)
                                 {
-                                    // Start holding the wind button (plays native crank audio & winds timer)
                                     puppet.click();
                                     puppetState = PuppetWindingState.Winding;
                                     Debug.Log("[FNAF87 AutoPilot] Holding wind button on Cam 11...");
@@ -298,7 +321,6 @@ namespace FNAF87Mod
                                 break;
 
                             case PuppetWindingState.Winding:
-                                // Ensure camera monitor remains active
                                 if (ols != null && ols.cams != null && !ols.cams.activeSelf)
                                 {
                                     ols.cams.SetActive(true);
@@ -308,7 +330,6 @@ namespace FNAF87Mod
                                     puppet.click();
                                 }
 
-                                // Finished winding when box hits ~98%
                                 if (puppet.timer >= 98f)
                                 {
                                     Debug.Log("[FNAF87 AutoPilot] Music box fully wound (100%). Releasing button and dropping monitor...");
