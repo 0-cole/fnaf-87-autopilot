@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace FNAF87Mod
 {
@@ -11,11 +12,12 @@ namespace FNAF87Mod
         public static AutoPilot Instance;
 
         private OfficeLightScript ols;
+        private Mask maskController;
         private PuppetScript puppet;
         private FoxyBrainScript foxy;
         private BBVentScript[] bbVents;
         private ToyFreddyPositionScript[] tfPositions;
-        private BreakerSwitchScript[] breakerSwitches;
+        private BreakerScript[] breakers;
         private OfficeCharacterScript[] officeChars;
         private VentCharacter[] ventChars;
         private MangleHallScript mangle;
@@ -25,6 +27,7 @@ namespace FNAF87Mod
 
         private float refreshTimer = 0f;
         private List<string> activeThreats = new List<string>();
+        private bool lastThreatState = false;
 
         public static void Attach(OfficeLightScript targetOls)
         {
@@ -42,16 +45,24 @@ namespace FNAF87Mod
             Instance = this;
             if (ols == null) ols = GetComponent<OfficeLightScript>();
             RefreshReferences();
+            Debug.Log(string.Format("[FNAF87 AutoPilot] Initialized: Office={0}, Vents={1}, Breakers={2}, Puppet={3}, Foxy={4}, BB={5}",
+                (officeChars != null ? officeChars.Length : 0),
+                (ventChars != null ? ventChars.Length : 0),
+                (breakers != null ? breakers.Length : 0),
+                (puppet != null),
+                (foxy != null),
+                (bbVents != null ? bbVents.Length : 0)));
         }
 
         private void RefreshReferences()
         {
             if (ols == null) ols = FindObjectOfType<OfficeLightScript>();
+            maskController = FindObjectOfType<Mask>();
             puppet = FindObjectOfType<PuppetScript>();
             foxy = FindObjectOfType<FoxyBrainScript>();
             bbVents = FindObjectsOfType<BBVentScript>();
             tfPositions = FindObjectsOfType<ToyFreddyPositionScript>();
-            breakerSwitches = FindObjectsOfType<BreakerSwitchScript>();
+            breakers = FindObjectsOfType<BreakerScript>();
             officeChars = FindObjectsOfType<OfficeCharacterScript>();
             ventChars = FindObjectsOfType<VentCharacter>();
             mangle = FindObjectOfType<MangleHallScript>();
@@ -62,6 +73,14 @@ namespace FNAF87Mod
 
         private void Update()
         {
+            // Title screen shortcut: Press N to jump straight into night
+            if (Input.GetKeyDown(KeyCode.N) && SceneManager.GetActiveScene().name.ToLower().Contains("title"))
+            {
+                Debug.Log("[FNAF87 AutoPilot] Quick-loading Nights scene via [N] shortcut.");
+                SceneManager.LoadScene("Nights");
+                return;
+            }
+
             if (Input.GetKeyDown(KeyCode.B))
             {
                 BotActive = !BotActive;
@@ -148,25 +167,38 @@ namespace FNAF87Mod
             // Sync Mask State
             if (threatPresent)
             {
-                if (!OfficeLightScript.mask)
+                OfficeLightScript.mask = true;
+                if (ols != null && ols.lowpass != null) ols.lowpass.cutoffFrequency = 3000f;
+
+                if (!lastThreatState)
                 {
-                    OfficeLightScript.mask = true;
-                    if (ols != null)
+                    lastThreatState = true;
+                    Debug.Log("[FNAF87 AutoPilot] Threat detected! Equipping security mask.");
+                    if (maskController != null && maskController.mask != null)
                     {
-                        if (ols.lowpass != null) ols.lowpass.cutoffFrequency = 3000f;
-                        if (ols.maskanim != null) ols.maskanim.SetTrigger("On");
+                        maskController.mask.SetTrigger("Toggle");
+                    }
+                    else if (ols != null && ols.maskanim != null)
+                    {
+                        ols.maskanim.SetTrigger("Toggle");
                     }
                 }
             }
             else
             {
-                if (OfficeLightScript.mask)
+                if (lastThreatState)
                 {
+                    lastThreatState = false;
                     OfficeLightScript.mask = false;
-                    if (ols != null)
+                    if (ols != null && ols.lowpass != null) ols.lowpass.cutoffFrequency = 22000f;
+                    Debug.Log("[FNAF87 AutoPilot] All threats cleared. Lowering security mask.");
+                    if (maskController != null && maskController.mask != null)
                     {
-                        if (ols.lowpass != null) ols.lowpass.cutoffFrequency = 22000f;
-                        if (ols.maskanim != null) ols.maskanim.SetTrigger("Off");
+                        maskController.mask.SetTrigger("Toggle");
+                    }
+                    else if (ols != null && ols.maskanim != null)
+                    {
+                        ols.maskanim.SetTrigger("Toggle");
                     }
                 }
             }
@@ -213,23 +245,33 @@ namespace FNAF87Mod
                             tf.brain.Moving = true;
                             tf.brain.MoveTimer = UnityEngine.Random.Range(60f, 90f);
                         }
+                        Debug.Log("[FNAF87 AutoPilot] Repelled Toy Freddy at switchboard!");
                     }
                 }
             }
 
             // 6. Breakers & Power Outage Auto-Restore
-            if (breakerSwitches != null)
+            if (breakers != null)
             {
-                for (int i = 0; i < breakerSwitches.Length; i++)
+                for (int i = 0; i < breakers.Length; i++)
                 {
-                    var sw = breakerSwitches[i];
-                    if (sw == null) continue;
+                    var b = breakers[i];
+                    if (b == null) continue;
 
-                    if (!sw.on)
+                    b.Switches = 14;
+                    if (b.warning != null) b.warning.SetActive(false);
+
+                    if (b.switcheslist != null)
                     {
-                        sw.on = true;
-                        if (sw.anim != null) sw.anim.SetBool("On", true);
-                        if (sw.bs != null) sw.bs.Switches++;
+                        for (int s = 0; s < b.switcheslist.Length; s++)
+                        {
+                            var sw = b.switcheslist[s];
+                            if (sw != null && !sw.on)
+                            {
+                                sw.on = true;
+                                if (sw.anim != null) sw.anim.SetBool("On", true);
+                            }
+                        }
                     }
                 }
             }
@@ -244,6 +286,10 @@ namespace FNAF87Mod
                 if (lightManager.anim != null)
                 {
                     lightManager.anim.SetBool("PowerOutage", false);
+                }
+                if (lightManager.BreakerUI != null)
+                {
+                    lightManager.BreakerUI.SetBool("BreakerActive", false);
                 }
             }
 
@@ -262,6 +308,7 @@ namespace FNAF87Mod
                         bb.LeaveBB();
                         bb.Active = false;
                         bb.timer = 40f;
+                        Debug.Log("[FNAF87 AutoPilot] Banished Balloon Boy from vent!");
                     }
                 }
             }
