@@ -10,6 +10,7 @@ This workspace contains reverse-engineered engine mods and omniscient autonomous
 2. **FNAF Rewritten: '87** (`C:\Games\FNAF-Rewritten-87\FNAFRewritten87.exe`):
    - Engine: Unity 2021.3.9f1 (Mono x64).
    - Omniscient Auto-Pilot bot and cyber-tactical ESP HUD built in C# (`FNAF87Mod.dll`).
+   - **Realistic Puppet Camera Winding**: Autonomously monitors the music box as it naturally unwinds. When it drops to 60%, the bot checks for office threats, opens the camera monitor (`ols.cams.SetActive(true)`), switches to Cam 11 Prize Corner (`selection.Cam11()`), clicks and holds the wind button (`puppet.click()`) with native mechanical audio and smooth crank animation until 100%, then lowers the monitor. Immediately drops cameras and masks up if an office threat intrudes!
    - Standalone single-file 1-click patcher tool (`ModInjector.exe`) built with Mono.Cecil.
    - Published to GitHub repository: [0-cole/fnaf-87-autopilot](https://github.com/0-cole/fnaf-87-autopilot) with release [v1.0.0](https://github.com/0-cole/fnaf-87-autopilot/releases/tag/v1.0.0).
 
@@ -31,12 +32,13 @@ This workspace contains reverse-engineered engine mods and omniscient autonomous
   - Bot reaction: Sets `flash9 = true`, resets `OutageTimer = 40f`, hides model, resets `Arrived = false`, and commands retreat for 60–90 seconds (`brain.Moving = true`).
 - **Breakers & Power Outage**:
   - Total switches across the 4 panels is 56. When sum < 56, power cuts and Power Freddy spawns.
-  - Bot reaction: Scans `BreakerSwitchScript` every frame; if any switch is `!on`, forces `on = true; sw.anim.SetBool("On", true); sw.bs.Switches++;`. Power outage is completely locked out.
-- **The Puppet (Music Box)**:
-  - `PuppetScript`: Unwinds at `dif / 3f`. Warning triggers below 30% and 15%.
-  - Bot reaction: Locks `puppet.timer = 100f`, `puppet.deathTimer = 40f`, keeping box permanently wound.
+  - Bot reaction: Directly audits all 4 `BreakerScript` instances; locks `Switches = 14;` (56/56 total) and turns off warning lights. Power outage is completely locked out.
+- **The Puppet (Realistic Camera Winding)**:
+  - `PuppetScript`: Naturally depletes at `dif / 3f`.
+  - Bot reaction: At $\le 60\%$, checks that office is clear, flips up monitor (`cams`), selects Cam 11 (`selection.Cam11()`), and holds `puppet.click()`. Plays genuine crank audio and fills the bar to 98%+, then closes monitor. Drops camera and cancels winding instantly if an office threat approaches.
+  - Hotkey `[M]` toggles between Realistic Camera Winding and Instant Memory Lock.
 - **Withered Foxy**:
-  - `FoxyBrainScript`: 40s hallway attack timer. Requires 5 pulsed flashes with $\ge 0.3s$ delay.
+  - `FoxyBrainScript`: 40s hallway attack timer. Requires 5 pulsed flashes with >= 0.3s delay.
   - Bot reaction: Freezes `Death = 40f`. When `Active`, sets `flash9 = true`, triggering retreat for 60–80s.
 - **Balloon Boy**:
   - `BBVentScript`: Mask does not work.
@@ -56,6 +58,8 @@ This workspace contains reverse-engineered engine mods and omniscient autonomous
 ### In-Game Controls
 - **`[B]`**: Toggle Auto-Pilot (Active / Standby)
 - **`[H]`**: Toggle Tactical HUD overlay
+- **`[M]`**: Toggle Puppet Winder Mode (Realistic Cam 11 Winder / Instant Memory Lock)
+- **`[N]`**: Fast Night Load shortcut from title screen
 
 ---
 
@@ -64,24 +68,9 @@ This workspace contains reverse-engineered engine mods and omniscient autonomous
 - **GitHub Repository**: `https://github.com/0-cole/fnaf-87-autopilot`
 - **Release v1.0.0 Asset**: `https://github.com/0-cole/fnaf-87-autopilot/releases/download/v1.0.0/fnaf87-autopilot-v1.0.0.zip`
 - **Source Structure**:
-  - `src/FNAF87Mod/AutoPilot.cs`: In-engine Auto-Pilot `MonoBehaviour` with threat logic & `OnGUI()` HUD.
+  - `src/FNAF87Mod/AutoPilot.cs`: In-engine Auto-Pilot `MonoBehaviour` with realistic winder, threat logic & `OnGUI()` HUD.
   - `src/FNAF87Mod/FNAF87Mod.csproj`: Targets `netstandard2.1` referencing Unity modules.
   - `src/ModInjector/Program.cs`: Console injector tool using `Mono.Cecil 0.11.6`.
   - `src/ModInjector/ModInjector.csproj`: Standalone single-file win-x64 executable.
   - `release/install.bat`: 1-click batch script for laptop users.
   - `release/uninstall.bat`: Restores vanilla `Assembly-CSharp.dll.bak`.
-
----
-
-## 4. Recent Modifications & Verified State
-- `Assembly-CSharp.dll` hooked cleanly at `OfficeLightScript.Start() -> AutoPilot.Attach(this)`.
-- Verified game boot: MonoManager reloads assemblies in 0.108s without crashing.
-- Verified game shutdown: Process `FNAFRewritten87.exe` successfully closed.
-- Git repository initialized, committed, and pushed to `main` branch.
-- GitHub Release `v1.0.0` published with attached 33MB zip installer package.
-
----
-
-## 5. Immediate Next Steps for Fresh AI Instance
-1. If user asks to test on laptop: Instruct them to download `fnaf87-autopilot-v1.0.0.zip` from GitHub Releases and run `install.bat`.
-2. If user requests additional visual mods (ESP bounding boxes, camera feed overlays, custom night presets), modify `src/FNAF87Mod/AutoPilot.cs`, rebuild with `dotnet build`, and redeploy `FNAF87Mod.dll`.
